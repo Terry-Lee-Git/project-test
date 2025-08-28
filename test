@@ -1,0 +1,73 @@
+import javax.xml.stream.*;
+import javax.xml.stream.events.*;
+import java.io.*;
+
+public class StaxSplitXml {
+    public static void main(String[] args) throws Exception {
+        String inputFile = "input.xml";
+        XMLInputFactory inputFactory = XMLInputFactory.newInstance();
+        XMLEventReader reader = inputFactory.createXMLEventReader(new FileInputStream(inputFile));
+
+        XMLOutputFactory outputFactory = XMLOutputFactory.newInstance();
+
+        int dCounter = 1; // 用于D文件编号
+
+        while (reader.hasNext()) {
+            XMLEvent event = reader.nextEvent();
+
+            if (event.isStartElement()) {
+                StartElement start = event.asStartElement();
+                String elementName = start.getName().getLocalPart();
+
+                if ("A".equals(elementName) || "B".equals(elementName) || "C".equals(elementName)) {
+                    // 普通单元素拆分
+                    String fileName = elementName + ".xml";
+                    writeSingleElement(reader, start, fileName, outputFactory);
+                    System.out.println("生成: " + fileName);
+                } else if ("Ds".equals(elementName)) {
+                    // list of D
+                    while (reader.hasNext()) {
+                        XMLEvent innerEvent = reader.nextEvent();
+                        if (innerEvent.isStartElement() && "D".equals(innerEvent.asStartElement().getName().getLocalPart())) {
+                            String fileName = "D_" + (dCounter++) + ".xml";
+                            writeSingleElement(reader, innerEvent.asStartElement(), fileName, outputFactory);
+                            System.out.println("生成: " + fileName);
+                        } else if (innerEvent.isEndElement() && "Ds".equals(innerEvent.asEndElement().getName().getLocalPart())) {
+                            break; // Ds 遍历完毕
+                        }
+                    }
+                }
+            }
+        }
+
+        reader.close();
+    }
+
+    private static void writeSingleElement(XMLEventReader reader, StartElement startElement, String fileName, XMLOutputFactory outputFactory) throws Exception {
+        XMLEventWriter writer = outputFactory.createXMLEventWriter(new FileOutputStream(fileName), "UTF-8");
+        XMLEventFactory eventFactory = XMLEventFactory.newInstance();
+
+        // 写 XML 声明
+        writer.add(eventFactory.createStartDocument("UTF-8", "1.0"));
+        // 写 start element
+        writer.add(startElement);
+
+        int depth = 1; // 用于追踪嵌套结束
+        while (reader.hasNext() && depth > 0) {
+            XMLEvent event = reader.nextEvent();
+
+            if (event.isStartElement()) {
+                depth++;
+            } else if (event.isEndElement()) {
+                depth--;
+            }
+
+            writer.add(event);
+
+            if (depth == 0) break;
+        }
+
+        writer.add(eventFactory.createEndDocument());
+        writer.close();
+    }
+}
