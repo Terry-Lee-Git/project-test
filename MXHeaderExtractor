@@ -1,0 +1,78 @@
+import io.vertx.core.AbstractVerticle;
+import io.vertx.core.Vertx;
+import io.vertx.core.file.FileSystem;
+import io.vertx.core.json.JsonObject;
+import org.w3c.dom.Document;
+import org.xml.sax.InputSource;
+
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.xpath.XPath;
+import javax.xml.xpath.XPathConstants;
+import javax.xml.xpath.XPathFactory;
+import java.io.StringReader;
+
+public class HeaderExtractorVerticle extends AbstractVerticle {
+
+    private static final String TEMPLATE_FILE = "example_mx_message.xml";  // Your pain.001, pacs.009, or pacs.008 file
+
+    @Override
+    public void start() {
+        FileSystem fs = vertx.fileSystem();
+
+        // Read message asynchronously
+        fs.readFile(TEMPLATE_FILE, res -> {
+            if (res.succeeded()) {
+                String messageXml = res.result().toString("UTF-8");
+                extractHeaders(messageXml);
+            } else {
+                System.err.println("Failed to read file: " + res.cause());
+            }
+        });
+    }
+
+    private void extractHeaders(String messageXml) {
+        vertx.executeBlocking(promise -> {
+            try {
+                DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
+                dbf.setNamespaceAware(true);
+                DocumentBuilder db = dbf.newDocumentBuilder();
+                Document doc = db.parse(new InputSource(new StringReader(messageXml)));
+
+                XPath xpath = XPathFactory.newInstance().newXPath();
+
+                // Extract BizMsgIdr from AppHdr (namespace-agnostic XPath)
+                String bizMsgIdr = (String) xpath.evaluate("//*[local-name()='AppHdr']/*[local-name()='BizMsgIdr']", doc, XPathConstants.STRING);
+                
+                // Extract MsgDefIdr (includes version, e.g., "pacs.008.001.09")
+                String msgDefIdr = (String) xpath.evaluate("//*[local-name()='AppHdr']/*[local-name()='MsgDefIdr']", doc, XPathConstants.STRING);
+
+                // If AppHdr is missing, fallback to Document's GrpHdr equivalents (e.g., for MsgId and similar)
+                if (bizMsgIdr.isEmpty()) {
+                    bizMsgIdr = (String) xpath.evaluate("//*[local-name()='GrpHdr']/*[local-name()='MsgId']", doc, XPathConstants.STRING);
+                }
+                // Version might need parsing from xmlns or MsgDefIdr if not in header
+
+                JsonObject result = new JsonObject()
+                        .put("bizMsgIdr", bizMsgIdr)
+                        .put("msgDefIdr", msgDefIdr);  // Version is the last part of msgDefIdr
+
+                promise.complete(result);
+            } catch (Exception e) {
+                promise.fail(e);
+            }
+        }, res -> {
+            if (res.succeeded()) {
+                JsonObject headers = (JsonObject) res.result();
+                System.out.println("Extracted Headers: " + headers.encodePrettily());
+                // Use this in your app, e.g., send via HTTP or process further
+            } else {
+                System.err.println("Extraction failed: " + res.cause());
+            }
+        });
+    }
+
+    public static void main(String[] args) {
+        Vertx.vertx().deployVerticle(new HeaderExtractorVerticle());
+    }
+}
