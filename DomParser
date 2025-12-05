@@ -1,0 +1,119 @@
+import io.vertx.core.AbstractVerticle;
+import io.vertx.core.Vertx;
+import io.vertx.core.file.FileSystem;
+import io.vertx.core.json.JsonArray;
+import io.vertx.core.json.JsonObject;
+import org.w3c.dom.Document;
+import org.w3c.dom.Node;
+import org.xml.sax.InputSource;
+
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.transform.OutputKeys;
+import javax.xml.transform.Transformer;
+import javax.xml.transform.TransformerFactory;
+import javax.xml.transform.dom.DOMSource;
+import javax.xml.transform.stream.StreamResult;
+import javax.xml.xpath.XPath;
+import javax.xml.xpath.XPathConstants;
+import javax.xml.xpath.XPathFactory;
+import java.io.StringReader;
+import java.io.StringWriter;
+
+public class MessageCopierVerticle extends AbstractVerticle {
+
+    private static final String NAMESPACE = "urn:iso:std:iso:20022:tech:xsd:pacs.008.001.09";  // Or .10; paths are the same
+    private static final String TEMPLATE_FILE = "template_pacs008.xml";
+
+    @Override
+    public void start() {
+        FileSystem fs = vertx.fileSystem();
+
+        // Read template asynchronously
+        fs.readFile(TEMPLATE_FILE, res -> {
+            if (res.succeeded()) {
+                String templateXml = res.result().toString("UTF-8");
+                processBatch(templateXml);
+            } else {
+                System.err.println("Failed to read template: " + res.cause());
+            }
+        });
+    }
+
+    private void processBatch(String templateXml) {
+        // Example modifications: List of JsonObjects with new values
+        JsonArray modifications = new JsonArray()
+                .add(new JsonObject().put("upid", "NEW-UPID-001").put("amount", "1234.56").put("uetr", "abcdef12-3456-7890-abcd-ef1234567890"))
+                .add(new JsonObject().put("upid", "NEW-UPID-002").put("amount", "7890.12").put("uetr", "fedcba98-7654-3210-fedc-ba9876543210"));
+                // Add more...
+
+        for (int i = 0; i < modifications.size(); i++) {
+            JsonObject mod = modifications.getJsonObject(i);
+            int index = i + 1;  // For file naming
+
+            // Parse and modify in a non-blocking way (XML ops are sync, but we can chain futures if needed)
+            vertx.executeBlocking(promise -> {
+                try {
+                    DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
+                    dbf.setNamespaceAware(true);
+                    DocumentBuilder db = dbf.newDocumentBuilder();
+                    Document doc = db.parse(new InputSource(new StringReader(templateXml)));
+
+                    // Deep clone for this copy
+                    Document newDoc = (Document) doc.cloneNode(true);
+
+                    XPath xpath = XPathFactory.newInstance().newXPath();
+
+                    // Modify UPID (adjust XPath as needed, e.g., //*:FIToFICstmrCdtTrf/*:CdtTrfTxInf/*:PmtId/*:InstrId)
+                    Node upidNode = (Node) xpath.evaluate("//*[local-name()='FIToFICstmrCdtTrf']/*[local-name()='CdtTrfTxInf']/*[local-name()='PmtId']/*[local-name()='InstrId']", newDoc, XPathConstants.NODE);
+                    if (upidNode != null) {
+                        upidNode.setTextContent(mod.getString("upid"));
+                    }
+
+                    // Modify Amount (e.g., //*:FIToFICstmrCdtTrf/*:CdtTrfTxInf/*:IntrBkSttlmAmt)
+                    Node amountNode = (Node) xpath.evaluate("//*[local-name()='FIToFICstmrCdtTrf']/*[local-name()='CdtTrfTxInf']/*[local-name()='IntrBkSttlmAmt']", newDoc, XPathConstants.NODE);
+                    if (amountNode != null) {
+                        amountNode.setTextContent(mod.getString("amount"));  // Preserve currency attr if needed
+                    }
+
+                    // Modify UETR (e.g., //*:FIToFICstmrCdtTrf/*:GrpHdr/*:UETR)
+                    Node uetrNode = (Node) xpath.evaluate("//*[local-name()='FIToFICstmrCdtTrf']/*[local-name()='GrpHdr']/*[local-name()='UETR']", newDoc, XPathConstants.NODE);
+                    if (uetrNode != null) {
+                        uetrNode.setTextContent(mod.getString("uetr"));
+                    }
+
+                    // Serialize to string
+                    TransformerFactory tf = TransformerFactory.newInstance();
+                    Transformer transformer = tf.newTransformer();
+                    transformer.setOutputProperty(OutputKeys.INDENT, "yes");
+                    transformer.setOutputProperty(OutputKeys.ENCODING, "UTF-8");
+                    StringWriter writer = new StringWriter();
+                    transformer.transform(new DOMSource(newDoc), new StreamResult(writer));
+                    String outputXml = writer.getBuffer().toString();
+
+                    promise.complete(outputXml);
+                } catch (Exception e) {
+                    promise.fail(e);
+                }
+            }, res -> {
+                if (res.succeeded()) {
+                    String outputXml = (String) res.result();
+                    // Write asynchronously
+                    vertx.fileSystem().writeFile("modified_pacs008_copy_" + index + ".xml", io.vertx.core.buffer.Buffer.buffer(outputXml), writeRes -> {
+                        if (writeRes.succeeded()) {
+                            System.out.println("Generated copy " + index);
+                        } else {
+                            System.err.println("Write failed: " + writeRes.cause());
+                        }
+                    });
+                } else {
+                    System.err.println("Processing failed: " + res.cause());
+                }
+            });
+        }
+    }
+
+    public static void main(String[] args) {
+        Vertx.vertx().deployVerticle(new MessageCopierVerticle());
+    }
+}
