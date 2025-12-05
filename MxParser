@@ -1,0 +1,77 @@
+import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.transform.TransformerFactory;
+import javax.xml.transform.Transformer;
+import javax.xml.transform.dom.DOMSource;
+import javax.xml.transform.stream.StreamResult;
+import org.w3c.dom.*;
+import java.io.*;
+import java.util.UUID;
+import java.math.BigDecimal;
+import java.util.List;
+import java.util.ArrayList;
+
+/**
+ * MX Copier for pacs.008
+ * Supports pacs.008.001.09 / 001.10
+ */
+public class MXCopier {
+
+    /**
+     * Copy an MX XML N times, modifying UETR, InstrId, Amount.
+     *
+     * @param inputXml    Input MX XML file
+     * @param outputDir   Directory to write copies
+     * @param amounts     List of amounts for each copy (size = copy count)
+     * @throws Exception
+     */
+    public static void copyMX(File inputXml, File outputDir, List<BigDecimal> amounts) throws Exception {
+        if (!outputDir.exists()) outputDir.mkdirs();
+
+        // parse once
+        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+        factory.setNamespaceAware(true); // preserve namespaces
+        DocumentBuilder builder = factory.newDocumentBuilder();
+        Document originalDoc = builder.parse(inputXml);
+
+        // locate target nodes
+        NodeList uetrNodes = originalDoc.getElementsByTagName("EndToEndId");
+        NodeList instrIdNodes = originalDoc.getElementsByTagName("InstrId");
+        NodeList amountNodes = originalDoc.getElementsByTagName("InstdAmt");
+
+        if (uetrNodes.getLength() == 0 || instrIdNodes.getLength() == 0 || amountNodes.getLength() == 0) {
+            throw new RuntimeException("Cannot find target nodes in MX XML");
+        }
+
+        for (int i = 0; i < amounts.size(); i++) {
+            BigDecimal amount = amounts.get(i);
+
+            // deep clone document
+            Document copyDoc = (Document) originalDoc.cloneNode(true);
+
+            // update fields
+            copyDoc.getElementsByTagName("EndToEndId").item(0).setTextContent(UUID.randomUUID().toString());
+            copyDoc.getElementsByTagName("InstrId").item(0).setTextContent(UUID.randomUUID().toString());
+            copyDoc.getElementsByTagName("InstdAmt").item(0).setTextContent(amount.toPlainString());
+
+            // write to file
+            File outFile = new File(outputDir, "copy-" + (i + 1) + ".xml");
+            Transformer t = TransformerFactory.newInstance().newTransformer();
+            t.transform(new DOMSource(copyDoc), new StreamResult(outFile));
+        }
+    }
+
+    // simple test
+    public static void main(String[] args) throws Exception {
+        File input = new File("pacs008.xml");
+        File outDir = new File("copies");
+
+        List<BigDecimal> amounts = new ArrayList<>();
+        amounts.add(new BigDecimal("100.50"));
+        amounts.add(new BigDecimal("200.75"));
+        amounts.add(new BigDecimal("300.00"));
+
+        copyMX(input, outDir, amounts);
+        System.out.println("Done! Copies created in " + outDir.getAbsolutePath());
+    }
+}
