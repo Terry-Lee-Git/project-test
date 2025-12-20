@@ -1,0 +1,39 @@
+public class MemoryPressureTest {
+
+    private static final int COUNT = 1_000_000;
+
+    public static void main(String[] args) throws Exception {
+
+        Object sharedCircuitBreaker = new Object();
+
+        // 强制 GC，清理启动噪音
+        System.gc();
+        Thread.sleep(2000);
+
+        long beforeUsed = usedMemory();
+
+        for (int i = 0; i < COUNT; i++) {
+            WebRequestExecutor.create()
+                .withCircuitBreaker(sharedCircuitBreaker)
+                .expectStatus(code -> code >= 200 && code < 300)
+                .whenUnauthorized(() -> null);
+        }
+
+        // 再 GC，观察存活对象
+        System.gc();
+        Thread.sleep(2000);
+
+        long afterUsed = usedMemory();
+
+        System.out.println("Executors created: " + COUNT);
+        System.out.println("Used memory before: " + beforeUsed / 1024 / 1024 + " MB");
+        System.out.println("Used memory after : " + afterUsed / 1024 / 1024 + " MB");
+        System.out.println("Delta             : " +
+                (afterUsed - beforeUsed) / 1024 / 1024 + " MB");
+    }
+
+    private static long usedMemory() {
+        Runtime r = Runtime.getRuntime();
+        return r.totalMemory() - r.freeMemory();
+    }
+}
