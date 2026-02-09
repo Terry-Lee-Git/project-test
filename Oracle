@@ -1,0 +1,62 @@
+查询 CPU 配置
+SELECT 
+    INSTANCE_NAME, 
+    NUM_CPUS,               -- 逻辑 CPU 数量
+    STATISTICS_UPDATED      -- 信息更新时间
+FROM GV$OSSTAT 
+WHERE STAT_NAME = 'NUM_CPUS';
+
+-- 进一步查看 CPU 的负载情况（Load）
+SELECT 
+    INST_ID, 
+    STAT_NAME, 
+    VALUE 
+FROM GV$OSSTAT 
+WHERE STAT_NAME IN ('LOAD', 'IDLE_TICKS', 'USER_TICKS', 'SYS_TICKS');
+
+查询 内存 (SGA & PGA) 配置
+-- 查看当前 SGA（全局内存）和 PGA（连接私有内存）的总大小
+SELECT 
+    INST_ID,
+    NAME, 
+    ROUND(VALUE/1024/1024/1024, 2) AS GB 
+FROM GV$PARAMETER 
+WHERE NAME IN ('sga_target', 'pga_aggregate_target', 'memory_target');
+
+-- 查看内存的实际使用分布（Buffer Cache 越大，对 SSD 的压力越小）
+SELECT 
+    INST_ID,
+    COMPONENT, 
+    CURRENT_SIZE/1024/1024/1024 AS SIZE_GB 
+FROM GV$SGA_DYNAMIC_COMPONENTS 
+WHERE COMPONENT IN ('DEFAULT buffer cache', 'shared pool');
+
+查询 磁盘 (ASM) 信息
+-- 查看磁盘组（Disk Group）的总容量和剩余空间
+SELECT 
+    NAME, 
+    STATE, 
+    TYPE,                         -- NORMAL(2副本), HIGH(3副本), EXTERN
+    TOTAL_MB/1024 AS TOTAL_GB, 
+    FREE_MB/1024 AS FREE_GB,
+    HOT_READS, HOT_WRITES         -- 观察热点读写
+FROM V$ASM_DISKGROUP;
+
+-- 查看物理磁盘的 I/O 响应时间（非常关键！）
+-- 如果平均读写时间超过 5-10ms，说明 SSD 已经过载或有瓶颈
+SELECT 
+    GROUP_NUMBER, 
+    PATH, 
+    READ_TIME, 
+    WRITE_TIME, 
+    READS, 
+    WRITES 
+FROM V$ASM_DISK_STAT;
+
+-- 查看排名前五的等待事件
+SELECT * FROM (
+    SELECT EVENT, TOTAL_WAITS, TIME_WAITED_MICRO 
+    FROM V$SYSTEM_EVENT 
+    ORDER BY TIME_WAITED_MICRO DESC
+) WHERE ROWNUM <= 5;
+
