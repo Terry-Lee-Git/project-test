@@ -79,3 +79,15 @@ SELECT
     (SELECT VALUE FROM V$PARAMETER WHERE NAME = 'db_unique_name') as DB_NAME -- 数据库唯一名
 FROM V$INSTANCE;
 
+
+• REVERSE INDEX： 必须保持。它把这 200 次写入打散到不同的内存块中。
+• Sequence CACHE 5000： 必须保持。如果 Cache 太小，这 200 个请求会为了取号在 row cache lock 上排队。
+• INITRANS 50： 必须保持。确保每个数据块都有足够的“停车位”给这 200 个并发事务。
+
+诊断你的 200 RPS 瓶颈
+请在压测时运行这个 SQL，看看你的 Service 到不到 200 RPS 是被谁挡住了：
+SELECT event, total_waits, time_waited 
+FROM v$session_event 
+WHERE sid IN (SELECT sid FROM v$session WHERE program LIKE '%your_service_name%')
+ORDER BY time_waited DESC;
+
