@@ -91,3 +91,30 @@ FROM v$session_event
 WHERE sid IN (SELECT sid FROM v$session WHERE program LIKE '%your_service_name%')
 ORDER BY time_waited DESC;
 
+1. 查询表的 INITRANS
+SELECT 
+    owner, 
+    table_name, 
+    ini_trans, 
+    max_trans, 
+    partitioned
+FROM all_tables 
+WHERE owner = '你的SCHEMA名' -- 注意大写
+  AND table_name = '你的表名';
+查询索引的 INITRANS (最关键)
+SELECT 
+    owner, 
+    index_name, 
+    table_name, 
+    ini_trans, 
+    max_trans
+FROM all_indexes 
+WHERE owner = '你的SCHEMA名' 
+  AND table_name = '你的表名';
+
+-- 修改表
+ALTER TABLE 你的表名 INITRANS 50;
+
+-- 修改索引 (修改后通常需要重建索引以生效)
+ALTER INDEX 你的索引名 INITRANS 50 REBUILD ONLINE;
+
