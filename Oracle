@@ -60,3 +60,16 @@ SELECT * FROM (
     ORDER BY TIME_WAITED_MICRO DESC
 ) WHERE ROWNUM <= 5;
 
+SELECT 
+    INSTANCE_NAME,    -- 实例名称（如 node1, node2）
+    HOST_NAME,        -- 物理服务器名称
+    STATUS,           -- 状态（OPEN）
+    VERSION           -- 版本
+FROM V$INSTANCE;
+或者，如果你想查看当前集群中所有的实例以及你所在的 ID：
+SELECT 
+    USERENV('INSTANCE') AS my_instance_id, 
+    inst_id, 
+    instance_name 
+FROM gv$instance;
+
