@@ -73,3 +73,9 @@ SELECT
     instance_name 
 FROM gv$instance;
 
+SELECT 
+    INSTANCE_NAME,    -- 实例名
+    HOST_NAME,        -- 物理服务器主机名（通常主机名会带机房标识，如 DC1-DB01）
+    (SELECT VALUE FROM V$PARAMETER WHERE NAME = 'db_unique_name') as DB_NAME -- 数据库唯一名
+FROM V$INSTANCE;
+
